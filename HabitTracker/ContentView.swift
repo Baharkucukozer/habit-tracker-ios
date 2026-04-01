@@ -8,17 +8,30 @@
 import SwiftUI
 
 struct ContentView: View {
+    
+    @State private var habits: [Habit] = []
+    
     var body: some View {
-        VStack {
-            Image(systemName: "globe")
-                .imageScale(.large)
-                .foregroundStyle(.tint)
-            Text("Hello, world!")
+        TabView {
+            HabitsView(habits: $habits)
+                .tabItem {
+                    Label("Habits", systemImage: "checklist")
+                }
+            
+            StatsView(habits: habits)
+                .tabItem {
+                    Label("Stats", systemImage: "chart.bar.xaxis")
+                }
         }
-        .padding()
+        .onAppear {
+            loadHabits()
+        }
     }
-}
-
-#Preview {
-    ContentView()
+    
+    func loadHabits() {
+        if let data = UserDefaults.standard.data(forKey: "Habits"),
+           let decoded = try? JSONDecoder().decode([Habit].self, from: data) {
+            habits = decoded
+        }
+    }
 }

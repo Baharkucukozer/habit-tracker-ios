@@ -8,19 +8,25 @@
 import SwiftUI
 
 struct HabitsView: View {
-    
+
     @Binding var habits: [Habit]
     @State private var showingAddHabit = false
-    
+    @State private var editingHabitID: UUID? = nil
+    @State private var isEditMode = false
+
     var completedTodayCount: Int {
-        habits.filter { $0.isCompleted }.count
+        habits.filter { $0.isCompleted && $0.isScheduled(on: Date()) }.count
     }
-    
+
+    var scheduledTodayCount: Int {
+        habits.filter { $0.isScheduled(on: Date()) }.count
+    }
+
     var progressValue: Double {
-        guard !habits.isEmpty else { return 0 }
-        return Double(completedTodayCount) / Double(habits.count)
+        guard scheduledTodayCount > 0 else { return 0 }
+        return Double(completedTodayCount) / Double(scheduledTodayCount)
     }
-    
+
     var body: some View {
         NavigationStack {
             ZStack {
@@ -34,10 +40,10 @@ struct HabitsView: View {
                     endPoint: .bottomTrailing
                 )
                 .ignoresSafeArea()
-                
+
                 VStack(spacing: 16) {
                     summaryCard
-                    
+
                     if habits.isEmpty {
                         emptyState
                     } else {
@@ -47,6 +53,14 @@ struct HabitsView: View {
                                     .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
                                     .listRowSeparator(.hidden)
                                     .listRowBackground(Color.clear)
+                                    .swipeActions(edge: .leading, allowsFullSwipe: false) {
+                                        Button {
+                                            editingHabitID = habit.id
+                                        } label: {
+                                            Label("Edit", systemImage: "pencil")
+                                        }
+                                        .tint(.blue)
+                                    }
                                     .swipeActions(edge: .trailing, allowsFullSwipe: true) {
                                         Button(role: .destructive) {
                                             deleteHabit(habit)
@@ -59,6 +73,7 @@ struct HabitsView: View {
                         }
                         .listStyle(.plain)
                         .scrollContentBackground(.hidden)
+                        .environment(\.editMode, .constant(isEditMode ? .active : .inactive))
                     }
                 }
                 .padding(.top, 8)
@@ -67,47 +82,60 @@ struct HabitsView: View {
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
                     if !habits.isEmpty {
-                        EditButton()
+                        Button {
+                            withAnimation { isEditMode.toggle() }
+                        } label: {
+                            Text(isEditMode ? "Done" : "Edit")
+                        }
                     }
                 }
-                
                 ToolbarItem(placement: .topBarTrailing) {
                     Button {
                         showingAddHabit = true
                     } label: {
-                        Image(systemName: "plus")
-                            .font(.headline)
+                        Image(systemName: "plus").font(.headline)
                     }
                 }
             }
             .sheet(isPresented: $showingAddHabit) {
                 AddHabitView(habits: $habits, saveHabits: saveHabits)
             }
+            .sheet(item: Binding(
+                get: { editingHabitID.flatMap { id in habits.first(where: { $0.id == id }).map { _ in id } } },
+                set: { editingHabitID = $0 }
+            )) { id in
+                if let index = habits.firstIndex(where: { $0.id == id }) {
+                    EditHabitView(habit: $habits[index], saveHabits: saveHabits)
+                }
+            }
             .onAppear {
                 refreshDailyCompletionState()
             }
         }
     }
-    
+
+    // MARK: - Summary card
+
     var summaryCard: some View {
         VStack(alignment: .leading, spacing: 14) {
             HStack {
                 VStack(alignment: .leading, spacing: 4) {
                     Text("Today's Progress")
                         .font(.headline)
-                    
-                    Text("\(completedTodayCount) of \(habits.count) habits completed")
+                    Text(scheduledTodayCount == 0
+                         ? "No habits scheduled today"
+                         : "\(completedTodayCount) of \(scheduledTodayCount) habits completed")
                         .font(.subheadline)
                         .foregroundColor(.secondary)
                 }
-                
+
                 Spacer()
-                
+
                 ZStack {
                     Circle()
                         .stroke(Color.primary.opacity(0.08), lineWidth: 8)
                         .frame(width: 52, height: 52)
-                    
+
                     Circle()
                         .trim(from: 0, to: progressValue)
                         .stroke(
@@ -120,17 +148,17 @@ struct HabitsView: View {
                         )
                         .rotationEffect(.degrees(-90))
                         .frame(width: 52, height: 52)
-                    
+
                     Text("\(Int(progressValue * 100))%")
                         .font(.caption)
                         .fontWeight(.semibold)
                 }
             }
-            
+
             ProgressView(value: progressValue)
                 .tint(.blue)
-            
-            if !habits.isEmpty && completedTodayCount == habits.count {
+
+            if scheduledTodayCount > 0 && completedTodayCount == scheduledTodayCount {
                 Text("Great job — all habits done for today.")
                     .font(.footnote)
                     .foregroundColor(.green)
@@ -147,79 +175,110 @@ struct HabitsView: View {
         )
         .padding(.horizontal)
     }
-    
+
+    // MARK: - Empty state
+
     var emptyState: some View {
         VStack(spacing: 14) {
             Spacer()
-            
             Image(systemName: "checkmark.circle.badge.plus")
                 .font(.system(size: 56))
                 .foregroundStyle(.blue, .purple)
-            
             Text("No habits yet")
                 .font(.title3)
                 .fontWeight(.bold)
-            
             Text("Tap the + button to create your first habit and start tracking your daily progress.")
                 .font(.subheadline)
                 .foregroundColor(.secondary)
                 .multilineTextAlignment(.center)
                 .padding(.horizontal, 28)
-            
             Spacer()
         }
     }
-    
+
+    // MARK: - Habit row
+
     func habitRow(habit: Binding<Habit>) -> some View {
         let currentHabit = habit.wrappedValue
-        
+        let scheduledToday = currentHabit.isScheduled(on: Date())
+
         return HStack(spacing: 14) {
             ZStack {
                 Circle()
-                    .fill(currentHabit.themeColor.opacity(0.16))
+                    .fill(currentHabit.themeColor.opacity(scheduledToday ? 0.16 : 0.08))
                     .frame(width: 46, height: 46)
-                
                 Image(systemName: currentHabit.iconName)
                     .font(.title3)
-                    .foregroundColor(currentHabit.themeColor)
+                    .foregroundColor(scheduledToday ? currentHabit.themeColor : .secondary)
             }
-            
+
             VStack(alignment: .leading, spacing: 6) {
                 Text(currentHabit.name)
                     .font(.headline)
                     .strikethrough(currentHabit.isCompleted, color: currentHabit.themeColor)
-                    .foregroundColor(currentHabit.isCompleted ? .secondary : .primary)
-                
+                    .foregroundColor(currentHabit.isCompleted ? .secondary : (scheduledToday ? .primary : .secondary))
+
                 HStack(spacing: 10) {
-                    Text(currentHabit.isCompleted ? "Completed today" : "Not completed yet")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                    
+                    if !scheduledToday {
+                        Text("Not scheduled today")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    } else {
+                        Text(currentHabit.isCompleted ? "Completed today" : "Not completed yet")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+
                     Label("\(currentHabit.streakCount)", systemImage: "flame.fill")
                         .font(.caption)
                         .foregroundColor(.orange)
                 }
-                
+
+                Text(currentHabit.frequency.label)
+                    .font(.caption2)
+                    .foregroundColor(.secondary)
+
                 if currentHabit.reminderEnabled {
                     Text("Reminder: \(formattedTime(currentHabit.reminderTime))")
                         .font(.caption2)
                         .foregroundColor(.secondary)
                 }
             }
-            
+
             Spacer()
-            
-            Button {
-                withAnimation(.spring(response: 0.25, dampingFraction: 0.85)) {
-                    toggleHabitCompletion(for: habit)
-                    saveHabits()
+
+            if isEditMode {
+                // Outlined pill — Option B
+                Button {
+                    editingHabitID = currentHabit.id
+                } label: {
+                    Text("Edit")
+                        .font(.caption)
+                        .fontWeight(.semibold)
+                        .foregroundColor(.blue)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 5)
+                        .overlay(
+                            Capsule()
+                                .stroke(Color.blue, lineWidth: 1)
+                        )
                 }
-            } label: {
-                Image(systemName: currentHabit.isCompleted ? "checkmark.circle.fill" : "circle")
-                    .font(.title2)
-                    .foregroundColor(currentHabit.isCompleted ? currentHabit.themeColor : .gray.opacity(0.7))
+                .buttonStyle(.plain)
+                .transition(.opacity)
+            } else if scheduledToday {
+                Button {
+                    withAnimation(.spring(response: 0.25, dampingFraction: 0.85)) {
+                        toggleHabitCompletion(for: habit)
+                        saveHabits()
+                    }
+                } label: {
+                    Image(systemName: currentHabit.isCompleted ? "checkmark.circle.fill" : "circle")
+                        .font(.title2)
+                        .foregroundColor(currentHabit.isCompleted ? currentHabit.themeColor : .gray.opacity(0.7))
+                }
+                .buttonStyle(.plain)
+                .transition(.opacity)
             }
-            .buttonStyle(.plain)
         }
         .padding(16)
         .background(
@@ -227,24 +286,27 @@ struct HabitsView: View {
                 .fill(Color(.secondarySystemBackground))
                 .overlay(
                     RoundedRectangle(cornerRadius: 22)
-                        .stroke(currentHabit.themeColor.opacity(0.12), lineWidth: 1)
+                        .stroke(currentHabit.themeColor.opacity(scheduledToday ? 0.12 : 0.05), lineWidth: 1)
                 )
         )
         .shadow(color: .black.opacity(0.03), radius: 8, x: 0, y: 3)
+        .opacity(scheduledToday ? 1.0 : 0.5)
     }
-    
+
+    // MARK: - Helpers
+
     func formattedTime(_ date: Date) -> String {
         let formatter = DateFormatter()
         formatter.timeStyle = .short
         return formatter.string(from: date)
     }
-    
+
     func saveHabits() {
         if let encoded = try? JSONEncoder().encode(habits) {
             UserDefaults.standard.set(encoded, forKey: "Habits")
         }
     }
-    
+
     func deleteHabit(_ habit: Habit) {
         withAnimation {
             habits.removeAll { $0.id == habit.id }
@@ -252,27 +314,36 @@ struct HabitsView: View {
             saveHabits()
         }
     }
-    
+
     func moveHabits(from source: IndexSet, to destination: Int) {
         habits.move(fromOffsets: source, toOffset: destination)
         saveHabits()
     }
-    
+
     func toggleHabitCompletion(for habit: Binding<Habit>) {
         let calendar = Calendar.current
         let today = Date()
-        
+
         if habit.wrappedValue.isCompleted {
             habit.wrappedValue.isCompleted = false
+            habit.wrappedValue.completionHistory.removeAll {
+                calendar.isDateInToday($0)
+            }
             return
         }
-        
+
         if let lastDate = habit.wrappedValue.lastCompletedDate {
             if calendar.isDateInToday(lastDate) {
                 habit.wrappedValue.isCompleted = true
+                let alreadyRecorded = habit.wrappedValue.completionHistory.contains {
+                    calendar.isDateInToday($0)
+                }
+                if !alreadyRecorded {
+                    habit.wrappedValue.completionHistory.append(today)
+                }
                 return
             }
-            
+
             if let yesterday = calendar.date(byAdding: .day, value: -1, to: today),
                calendar.isDate(lastDate, inSameDayAs: yesterday) {
                 habit.wrappedValue.streakCount += 1
@@ -282,22 +353,32 @@ struct HabitsView: View {
         } else {
             habit.wrappedValue.streakCount = 1
         }
-        
+
         habit.wrappedValue.isCompleted = true
         habit.wrappedValue.lastCompletedDate = today
+
+        let alreadyRecorded = habit.wrappedValue.completionHistory.contains {
+            calendar.isDateInToday($0)
+        }
+        if !alreadyRecorded {
+            habit.wrappedValue.completionHistory.append(today)
+        }
     }
-    
+
     func refreshDailyCompletionState() {
         let calendar = Calendar.current
         let today = Date()
-        
         for index in habits.indices {
             if let lastDate = habits[index].lastCompletedDate,
                !calendar.isDate(lastDate, inSameDayAs: today) {
                 habits[index].isCompleted = false
             }
         }
-        
         saveHabits()
     }
+}
+
+// MARK: - UUID Identifiable conformance for sheet(item:)
+extension UUID: @retroactive Identifiable {
+    public var id: UUID { self }
 }

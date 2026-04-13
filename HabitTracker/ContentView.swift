@@ -18,6 +18,11 @@ struct ContentView: View {
                     Label("Habits", systemImage: "checklist")
                 }
             
+            HabitCalendarView(habits: habits)
+                .tabItem {
+                    Label("Calendar", systemImage: "calendar")
+                }
+            
             StatsView(habits: habits)
                 .tabItem {
                     Label("Stats", systemImage: "chart.bar.xaxis")

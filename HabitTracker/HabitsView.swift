@@ -15,7 +15,7 @@ struct HabitsView: View {
     @State private var isEditMode = false
 
     var completedTodayCount: Int {
-        habits.filter { $0.isCompleted && $0.isScheduled(on: Date()) }.count
+        habits.filter { $0.isFullyCompletedToday && $0.isScheduled(on: Date()) }.count
     }
 
     var scheduledTodayCount: Int {
@@ -135,7 +135,6 @@ struct HabitsView: View {
                     Circle()
                         .stroke(Color.primary.opacity(0.08), lineWidth: 8)
                         .frame(width: 52, height: 52)
-
                     Circle()
                         .trim(from: 0, to: progressValue)
                         .stroke(
@@ -148,7 +147,6 @@ struct HabitsView: View {
                         )
                         .rotationEffect(.degrees(-90))
                         .frame(width: 52, height: 52)
-
                     Text("\(Int(progressValue * 100))%")
                         .font(.caption)
                         .fontWeight(.semibold)
@@ -201,6 +199,7 @@ struct HabitsView: View {
     func habitRow(habit: Binding<Habit>) -> some View {
         let currentHabit = habit.wrappedValue
         let scheduledToday = currentHabit.isScheduled(on: Date())
+        let isMulti = currentHabit.dailyTarget > 1
 
         return HStack(spacing: 14) {
             ZStack {
@@ -215,16 +214,20 @@ struct HabitsView: View {
             VStack(alignment: .leading, spacing: 6) {
                 Text(currentHabit.name)
                     .font(.headline)
-                    .strikethrough(currentHabit.isCompleted, color: currentHabit.themeColor)
-                    .foregroundColor(currentHabit.isCompleted ? .secondary : (scheduledToday ? .primary : .secondary))
+                    .strikethrough(currentHabit.isFullyCompletedToday, color: currentHabit.themeColor)
+                    .foregroundColor(currentHabit.isFullyCompletedToday ? .secondary : (scheduledToday ? .primary : .secondary))
 
                 HStack(spacing: 10) {
                     if !scheduledToday {
                         Text("Not scheduled today")
                             .font(.caption)
                             .foregroundColor(.secondary)
+                    } else if isMulti {
+                        Text("\(currentHabit.completionCount) of \(currentHabit.dailyTarget) done")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
                     } else {
-                        Text(currentHabit.isCompleted ? "Completed today" : "Not completed yet")
+                        Text(currentHabit.isFullyCompletedToday ? "Completed today" : "Not completed yet")
                             .font(.caption)
                             .foregroundColor(.secondary)
                     }
@@ -247,8 +250,9 @@ struct HabitsView: View {
 
             Spacer()
 
+            // Right side controls
             if isEditMode {
-                // Outlined pill — Option B
+                // Edit pill
                 Button {
                     editingHabitID = currentHabit.id
                 } label: {
@@ -258,26 +262,31 @@ struct HabitsView: View {
                         .foregroundColor(.blue)
                         .padding(.horizontal, 10)
                         .padding(.vertical, 5)
-                        .overlay(
-                            Capsule()
-                                .stroke(Color.blue, lineWidth: 1)
-                        )
+                        .overlay(Capsule().stroke(Color.blue, lineWidth: 1))
                 }
                 .buttonStyle(.plain)
                 .transition(.opacity)
+
             } else if scheduledToday {
-                Button {
-                    withAnimation(.spring(response: 0.25, dampingFraction: 0.85)) {
-                        toggleHabitCompletion(for: habit)
-                        saveHabits()
+                if isMulti {
+                    // Multi-target counter UI
+                    multiCounterView(habit: habit)
+                        .transition(.opacity)
+                } else {
+                    // Standard single checkmark
+                    Button {
+                        withAnimation(.spring(response: 0.25, dampingFraction: 0.85)) {
+                            toggleSingleHabit(for: habit)
+                            saveHabits()
+                        }
+                    } label: {
+                        Image(systemName: currentHabit.isFullyCompletedToday ? "checkmark.circle.fill" : "circle")
+                            .font(.title2)
+                            .foregroundColor(currentHabit.isFullyCompletedToday ? currentHabit.themeColor : .gray.opacity(0.7))
                     }
-                } label: {
-                    Image(systemName: currentHabit.isCompleted ? "checkmark.circle.fill" : "circle")
-                        .font(.title2)
-                        .foregroundColor(currentHabit.isCompleted ? currentHabit.themeColor : .gray.opacity(0.7))
+                    .buttonStyle(.plain)
+                    .transition(.opacity)
                 }
-                .buttonStyle(.plain)
-                .transition(.opacity)
             }
         }
         .padding(16)
@@ -291,6 +300,56 @@ struct HabitsView: View {
         )
         .shadow(color: .black.opacity(0.03), radius: 8, x: 0, y: 3)
         .opacity(scheduledToday ? 1.0 : 0.5)
+    }
+
+    // MARK: - Multi counter view
+
+    func multiCounterView(habit: Binding<Habit>) -> some View {
+        let current = habit.wrappedValue
+        let done = current.isFullyCompletedToday
+
+        return VStack(spacing: 6) {
+            // Dot indicators
+            HStack(spacing: 4) {
+                ForEach(0..<current.dailyTarget, id: \.self) { index in
+                    Circle()
+                        .fill(index < current.completionCount
+                              ? current.themeColor
+                              : Color(.systemFill))
+                        .frame(width: 10, height: 10)
+                }
+            }
+
+            // Plus button or checkmark
+            Button {
+                withAnimation(.spring(response: 0.25, dampingFraction: 0.85)) {
+                    if done {
+                        // Tap checkmark to reset
+                        resetMultiHabit(for: habit)
+                    } else {
+                        // Increment count
+                        incrementHabit(for: habit)
+                    }
+                    saveHabits()
+                }
+            } label: {
+                if done {
+                    Image(systemName: "checkmark.circle.fill")
+                        .font(.title2)
+                        .foregroundColor(current.themeColor)
+                } else {
+                    ZStack {
+                        Circle()
+                            .stroke(Color.gray.opacity(0.3), lineWidth: 1.5)
+                            .frame(width: 32, height: 32)
+                        Image(systemName: "plus")
+                            .font(.system(size: 14, weight: .semibold))
+                            .foregroundColor(current.themeColor)
+                    }
+                }
+            }
+            .buttonStyle(.plain)
+        }
     }
 
     // MARK: - Helpers
@@ -320,30 +379,27 @@ struct HabitsView: View {
         saveHabits()
     }
 
-    func toggleHabitCompletion(for habit: Binding<Habit>) {
+    // MARK: - Single habit toggle (dailyTarget == 1)
+
+    func toggleSingleHabit(for habit: Binding<Habit>) {
         let calendar = Calendar.current
         let today = Date()
 
-        if habit.wrappedValue.isCompleted {
+        if habit.wrappedValue.isFullyCompletedToday {
             habit.wrappedValue.isCompleted = false
-            habit.wrappedValue.completionHistory.removeAll {
-                calendar.isDateInToday($0)
-            }
+            habit.wrappedValue.completionCount = 0
+            habit.wrappedValue.completionHistory.removeAll { calendar.isDateInToday($0) }
             return
         }
 
         if let lastDate = habit.wrappedValue.lastCompletedDate {
             if calendar.isDateInToday(lastDate) {
                 habit.wrappedValue.isCompleted = true
-                let alreadyRecorded = habit.wrappedValue.completionHistory.contains {
-                    calendar.isDateInToday($0)
-                }
-                if !alreadyRecorded {
-                    habit.wrappedValue.completionHistory.append(today)
-                }
+                habit.wrappedValue.completionCount = 1
+                let alreadyRecorded = habit.wrappedValue.completionHistory.contains { calendar.isDateInToday($0) }
+                if !alreadyRecorded { habit.wrappedValue.completionHistory.append(today) }
                 return
             }
-
             if let yesterday = calendar.date(byAdding: .day, value: -1, to: today),
                calendar.isDate(lastDate, inSameDayAs: yesterday) {
                 habit.wrappedValue.streakCount += 1
@@ -355,15 +411,54 @@ struct HabitsView: View {
         }
 
         habit.wrappedValue.isCompleted = true
+        habit.wrappedValue.completionCount = 1
         habit.wrappedValue.lastCompletedDate = today
+        let alreadyRecorded = habit.wrappedValue.completionHistory.contains { calendar.isDateInToday($0) }
+        if !alreadyRecorded { habit.wrappedValue.completionHistory.append(today) }
+    }
 
-        let alreadyRecorded = habit.wrappedValue.completionHistory.contains {
-            calendar.isDateInToday($0)
-        }
-        if !alreadyRecorded {
-            habit.wrappedValue.completionHistory.append(today)
+    // MARK: - Multi habit increment (dailyTarget > 1)
+
+    func incrementHabit(for habit: Binding<Habit>) {
+        let calendar = Calendar.current
+        let today = Date()
+
+        habit.wrappedValue.completionCount += 1
+
+        // Check if we just hit the target
+        if habit.wrappedValue.completionCount >= habit.wrappedValue.dailyTarget {
+            habit.wrappedValue.isCompleted = true
+
+            // Streak logic
+            if let lastDate = habit.wrappedValue.lastCompletedDate {
+                if !calendar.isDateInToday(lastDate) {
+                    if let yesterday = calendar.date(byAdding: .day, value: -1, to: today),
+                       calendar.isDate(lastDate, inSameDayAs: yesterday) {
+                        habit.wrappedValue.streakCount += 1
+                    } else {
+                        habit.wrappedValue.streakCount = 1
+                    }
+                }
+            } else {
+                habit.wrappedValue.streakCount = 1
+            }
+
+            habit.wrappedValue.lastCompletedDate = today
+            let alreadyRecorded = habit.wrappedValue.completionHistory.contains { calendar.isDateInToday($0) }
+            if !alreadyRecorded { habit.wrappedValue.completionHistory.append(today) }
         }
     }
+
+    // MARK: - Reset multi habit
+
+    func resetMultiHabit(for habit: Binding<Habit>) {
+        let calendar = Calendar.current
+        habit.wrappedValue.isCompleted = false
+        habit.wrappedValue.completionCount = 0
+        habit.wrappedValue.completionHistory.removeAll { calendar.isDateInToday($0) }
+    }
+
+    // MARK: - Daily refresh
 
     func refreshDailyCompletionState() {
         let calendar = Calendar.current
@@ -372,6 +467,7 @@ struct HabitsView: View {
             if let lastDate = habits[index].lastCompletedDate,
                !calendar.isDate(lastDate, inSameDayAs: today) {
                 habits[index].isCompleted = false
+                habits[index].completionCount = 0
             }
         }
         saveHabits()

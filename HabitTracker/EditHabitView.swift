@@ -2,21 +2,15 @@
 //  EditHabitView.swift
 //  HabitTracker
 //
-//  Created by Bahar Küçüközer on 13.04.2026.
-//
-
 
 import SwiftUI
 
 struct EditHabitView: View {
 
     @Environment(\.dismiss) var dismiss
-
-    // The index of the habit being edited in the habits array
     @Binding var habit: Habit
     var saveHabits: () -> Void
 
-    // Local form state — pre-filled from the existing habit
     @State private var habitName: String
     @State private var selectedIcon: String
     @State private var selectedColor: String
@@ -25,20 +19,19 @@ struct EditHabitView: View {
     @State private var frequency: HabitFrequency
     @State private var selectedDays: Set<Int>
     @State private var timesPerWeek: Int
+    @State private var dailyTarget: Int
 
     init(habit: Binding<Habit>, saveHabits: @escaping () -> Void) {
         self._habit = habit
         self.saveHabits = saveHabits
-
-        // Pre-fill all fields from the existing habit
         _habitName = State(initialValue: habit.wrappedValue.name)
         _selectedIcon = State(initialValue: habit.wrappedValue.iconName)
         _selectedColor = State(initialValue: habit.wrappedValue.colorName)
         _reminderEnabled = State(initialValue: habit.wrappedValue.reminderEnabled)
         _reminderTime = State(initialValue: habit.wrappedValue.reminderTime)
         _frequency = State(initialValue: habit.wrappedValue.frequency)
+        _dailyTarget = State(initialValue: habit.wrappedValue.dailyTarget)
 
-        // Pre-fill frequency-specific state
         switch habit.wrappedValue.frequency {
         case .specificDays(let days):
             _selectedDays = State(initialValue: Set(days))
@@ -73,6 +66,7 @@ struct EditHabitView: View {
                         iconSection
                         colorSection
                         frequencySection
+                        dailyTargetSection
                         reminderSection
                     }
                     .padding()
@@ -81,9 +75,7 @@ struct EditHabitView: View {
             .navigationTitle("Edit Habit")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .topBarLeading) {
-                    Button("Cancel") { dismiss() }
-                }
+                ToolbarItem(placement: .topBarLeading) { Button("Cancel") { dismiss() } }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("Save") { saveEdit() }
                         .fontWeight(.semibold)
@@ -108,7 +100,7 @@ struct EditHabitView: View {
             VStack(alignment: .leading, spacing: 6) {
                 Text(habitName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "Habit name" : habitName)
                     .font(.headline)
-                Text(currentFrequency.label)
+                Text(dailyTarget > 1 ? "\(frequency.label) · \(dailyTarget)x per day" : frequency.label)
                     .font(.caption)
                     .foregroundColor(.secondary)
             }
@@ -122,8 +114,7 @@ struct EditHabitView: View {
 
     var nameSection: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("Habit Name")
-                .font(.headline)
+            Text("Habit Name").font(.headline)
             TextField("e.g. Drink water", text: $habitName)
                 .padding()
                 .background(RoundedRectangle(cornerRadius: 16).fill(Color(.secondarySystemBackground)))
@@ -134,8 +125,7 @@ struct EditHabitView: View {
 
     var iconSection: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Choose an Icon")
-                .font(.headline)
+            Text("Choose an Icon").font(.headline)
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 12) {
                     ForEach(HabitTheme.iconOptions, id: \.self) { icon in
@@ -149,14 +139,12 @@ struct EditHabitView: View {
                                 Image(systemName: icon)
                                     .font(.title3)
                                     .foregroundColor(selectedIcon == icon
-                                                     ? HabitTheme.color(for: selectedColor)
-                                                     : .primary)
+                                                     ? HabitTheme.color(for: selectedColor) : .primary)
                             }
                             .overlay(
                                 RoundedRectangle(cornerRadius: 18)
                                     .stroke(selectedIcon == icon
-                                            ? HabitTheme.color(for: selectedColor)
-                                            : Color.clear, lineWidth: 2)
+                                            ? HabitTheme.color(for: selectedColor) : Color.clear, lineWidth: 2)
                             )
                         }
                         .buttonStyle(.plain)
@@ -171,19 +159,14 @@ struct EditHabitView: View {
 
     var colorSection: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Choose a Color")
-                .font(.headline)
+            Text("Choose a Color").font(.headline)
             HStack(spacing: 14) {
                 ForEach(HabitTheme.colorOptions, id: \.self) { colorName in
                     Button { selectedColor = colorName } label: {
                         ZStack {
-                            Circle()
-                                .fill(HabitTheme.color(for: colorName))
-                                .frame(width: 34, height: 34)
+                            Circle().fill(HabitTheme.color(for: colorName)).frame(width: 34, height: 34)
                             if selectedColor == colorName {
-                                Circle()
-                                    .stroke(Color.primary.opacity(0.25), lineWidth: 3)
-                                    .frame(width: 44, height: 44)
+                                Circle().stroke(Color.primary.opacity(0.25), lineWidth: 3).frame(width: 44, height: 44)
                             }
                         }
                     }
@@ -198,74 +181,44 @@ struct EditHabitView: View {
 
     var frequencySection: some View {
         VStack(alignment: .leading, spacing: 14) {
-            Text("Frequency")
-                .font(.headline)
-
-            // Frequency type picker
+            Text("Frequency").font(.headline)
             VStack(spacing: 0) {
                 frequencyOption(title: "Every day", subtitle: "No days off", value: .daily)
                 Divider().padding(.leading, 16)
-                frequencyOption(
-                    title: "Specific days",
-                    subtitle: "Pick which days of the week",
-                    value: .specificDays(Array(selectedDays).sorted())
-                )
+                frequencyOption(title: "Specific days", subtitle: "Pick which days of the week", value: .specificDays([]))
                 Divider().padding(.leading, 16)
-                frequencyOption(
-                    title: "Times per week",
-                    subtitle: "Any \(timesPerWeek) days each week",
-                    value: .timesPerWeek(timesPerWeek)
-                )
+                frequencyOption(title: "Times per week", subtitle: "Any \(timesPerWeek) days each week", value: .timesPerWeek(timesPerWeek))
             }
             .background(RoundedRectangle(cornerRadius: 16).fill(Color(.secondarySystemBackground)))
 
-            // Specific days picker
-            if case .specificDays = currentFrequency {
-                dayPicker
-            }
-
-            // Times per week stepper
-            if case .timesPerWeek = currentFrequency {
-                timesPerWeekStepper
-            }
+            if case .specificDays = frequency { dayPicker }
+            if case .timesPerWeek = frequency { timesPerWeekStepper }
         }
     }
 
     func frequencyOption(title: String, subtitle: String, value: HabitFrequency) -> some View {
         let isSelected: Bool = {
-            switch (currentFrequency, value) {
+            switch (frequency, value) {
             case (.daily, .daily): return true
             case (.specificDays, .specificDays): return true
             case (.timesPerWeek, .timesPerWeek): return true
             default: return false
             }
         }()
-
         return Button {
             switch value {
-            case .daily:
-                frequency = .daily
-            case .specificDays:
-                frequency = .specificDays(Array(selectedDays).sorted())
-            case .timesPerWeek:
-                frequency = .timesPerWeek(timesPerWeek)
+            case .daily: frequency = .daily
+            case .specificDays: frequency = .specificDays(Array(selectedDays).sorted())
+            case .timesPerWeek: frequency = .timesPerWeek(timesPerWeek)
             }
         } label: {
             HStack {
                 VStack(alignment: .leading, spacing: 3) {
-                    Text(title)
-                        .font(.subheadline)
-                        .foregroundColor(.primary)
-                    Text(subtitle)
-                        .font(.caption)
-                        .foregroundColor(.secondary)
+                    Text(title).font(.subheadline).foregroundColor(.primary)
+                    Text(subtitle).font(.caption).foregroundColor(.secondary)
                 }
                 Spacer()
-                if isSelected {
-                    Image(systemName: "checkmark")
-                        .foregroundColor(.blue)
-                        .fontWeight(.semibold)
-                }
+                if isSelected { Image(systemName: "checkmark").foregroundColor(.blue).fontWeight(.semibold) }
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 12)
@@ -274,23 +227,15 @@ struct EditHabitView: View {
     }
 
     var dayPicker: some View {
-        let days: [(Int, String)] = [
-            (1, "S"), (2, "M"), (3, "T"), (4, "W"), (5, "T"), (6, "F"), (7, "S")
-        ]
+        let days: [(Int, String)] = [(1,"S"),(2,"M"),(3,"T"),(4,"W"),(5,"T"),(6,"F"),(7,"S")]
         return HStack(spacing: 8) {
             ForEach(days, id: \.0) { weekday, letter in
                 let selected = selectedDays.contains(weekday)
                 Button {
-                    if selected {
-                        selectedDays.remove(weekday)
-                    } else {
-                        selectedDays.insert(weekday)
-                    }
+                    if selected { selectedDays.remove(weekday) } else { selectedDays.insert(weekday) }
                     frequency = .specificDays(Array(selectedDays).sorted())
                 } label: {
-                    Text(letter)
-                        .font(.subheadline)
-                        .fontWeight(.semibold)
+                    Text(letter).font(.subheadline).fontWeight(.semibold)
                         .frame(width: 36, height: 36)
                         .background(Circle().fill(selected ? Color.blue : Color(.systemFill)))
                         .foregroundColor(selected ? .white : .primary)
@@ -303,25 +248,52 @@ struct EditHabitView: View {
 
     var timesPerWeekStepper: some View {
         HStack {
-            Text("Times per week")
-                .font(.subheadline)
+            Text("Times per week").font(.subheadline)
             Spacer()
             Stepper("\(timesPerWeek)x", value: $timesPerWeek, in: 1...7)
-                .onChange(of: timesPerWeek) { _, new in
-                    frequency = .timesPerWeek(new)
-                }
+                .onChange(of: timesPerWeek) { _, new in frequency = .timesPerWeek(new) }
                 .fixedSize()
         }
         .padding()
         .background(RoundedRectangle(cornerRadius: 16).fill(Color(.secondarySystemBackground)))
     }
 
+    // MARK: - Daily target
+
+    var dailyTargetSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Times per Day").font(.headline)
+
+            HStack {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(dailyTarget == 1 ? "Once a day" : "\(dailyTarget) times a day")
+                        .font(.subheadline).foregroundColor(.primary)
+                    Text(dailyTarget == 1 ? "Tap once to complete" : "Tap + each time you do it")
+                        .font(.caption).foregroundColor(.secondary)
+                }
+                Spacer()
+                Stepper("", value: $dailyTarget, in: 1...10).fixedSize()
+            }
+            .padding()
+            .background(RoundedRectangle(cornerRadius: 16).fill(Color(.secondarySystemBackground)))
+
+            if dailyTarget > 1 {
+                HStack(spacing: 6) {
+                    Text("Progress looks like:").font(.caption).foregroundColor(.secondary)
+                    ForEach(0..<dailyTarget, id: \.self) { _ in
+                        Circle().fill(Color(.systemFill)).frame(width: 10, height: 10)
+                    }
+                }
+                .padding(.horizontal, 4)
+            }
+        }
+    }
+
     // MARK: - Reminder
 
     var reminderSection: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Reminder")
-                .font(.headline)
+            Text("Reminder").font(.headline)
             Toggle("Enable daily reminder", isOn: $reminderEnabled)
             if reminderEnabled {
                 DatePicker("Reminder Time", selection: $reminderTime, displayedComponents: .hourAndMinute)
@@ -332,12 +304,7 @@ struct EditHabitView: View {
         .background(RoundedRectangle(cornerRadius: 20).fill(Color(.secondarySystemBackground)))
     }
 
-    // MARK: - Helpers
-
-    /// The currently active frequency, keeping specific-days and times-per-week in sync
-    var currentFrequency: HabitFrequency {
-        frequency
-    }
+    // MARK: - Save
 
     func saveEdit() {
         let trimmed = habitName.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -349,6 +316,12 @@ struct EditHabitView: View {
         habit.reminderEnabled = reminderEnabled
         habit.reminderTime = reminderTime
         habit.frequency = frequency
+        habit.dailyTarget = dailyTarget
+        // Reset count if target changed to avoid stale state
+        if dailyTarget != habit.dailyTarget {
+            habit.completionCount = 0
+            habit.isCompleted = false
+        }
 
         NotificationManager.shared.updateNotification(for: habit)
         saveHabits()

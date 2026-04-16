@@ -12,9 +12,8 @@ import SwiftUI
 enum HabitFrequency: Codable, Equatable {
     case daily
     case specificDays([Int])   // 1 = Sunday, 2 = Monday ... 7 = Saturday
-    case timesPerWeek(Int)     // e.g. any 3 days per week
+    case timesPerWeek(Int)
 
-    // Custom coding because associated values need explicit handling
     enum CodingKeys: String, CodingKey {
         case type, days, times
     }
@@ -48,7 +47,6 @@ enum HabitFrequency: Codable, Equatable {
         }
     }
 
-    /// Human-readable summary shown in the habit row
     var label: String {
         switch self {
         case .daily:
@@ -62,7 +60,6 @@ enum HabitFrequency: Codable, Equatable {
         }
     }
 
-    /// Returns true if the habit is scheduled on a given date
     func isScheduled(on date: Date) -> Bool {
         let calendar = Calendar.current
         switch self {
@@ -72,14 +69,11 @@ enum HabitFrequency: Codable, Equatable {
             let weekday = calendar.component(.weekday, from: date)
             return days.contains(weekday)
         case .timesPerWeek:
-            // For timesPerWeek, every day is technically available —
-            // the constraint is just how many days in the week get completed.
             return true
         }
     }
 
     private func weekdayShortName(_ weekday: Int) -> String? {
-        // weekday: 1=Sun, 2=Mon, 3=Tue, 4=Wed, 5=Thu, 6=Fri, 7=Sat
         let names = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
         guard weekday >= 1 && weekday <= 7 else { return nil }
         return names[weekday - 1]
@@ -100,6 +94,8 @@ struct Habit: Identifiable, Codable, Equatable {
     var reminderEnabled: Bool
     var reminderTime: Date
     var frequency: HabitFrequency
+    var dailyTarget: Int      // how many times per day this habit must be done
+    var completionCount: Int  // how many times done today so far
 
     init(
         id: UUID = UUID(),
@@ -112,7 +108,9 @@ struct Habit: Identifiable, Codable, Equatable {
         colorName: String = "blue",
         reminderEnabled: Bool = false,
         reminderTime: Date = Calendar.current.date(from: DateComponents(hour: 20, minute: 0)) ?? Date(),
-        frequency: HabitFrequency = .daily
+        frequency: HabitFrequency = .daily,
+        dailyTarget: Int = 1,
+        completionCount: Int = 0
     ) {
         self.id = id
         self.name = name
@@ -125,12 +123,14 @@ struct Habit: Identifiable, Codable, Equatable {
         self.reminderEnabled = reminderEnabled
         self.reminderTime = reminderTime
         self.frequency = frequency
+        self.dailyTarget = dailyTarget
+        self.completionCount = completionCount
     }
 
     enum CodingKeys: String, CodingKey {
         case id, name, isCompleted, streakCount, lastCompletedDate
         case completionHistory, iconName, colorName, reminderEnabled, reminderTime
-        case frequency
+        case frequency, dailyTarget, completionCount
     }
 
     init(from decoder: Decoder) throws {
@@ -147,8 +147,9 @@ struct Habit: Identifiable, Codable, Equatable {
         reminderTime = try container.decodeIfPresent(Date.self, forKey: .reminderTime)
             ?? Calendar.current.date(from: DateComponents(hour: 20, minute: 0))
             ?? Date()
-        // Old saved habits without frequency default to .daily
         frequency = try container.decodeIfPresent(HabitFrequency.self, forKey: .frequency) ?? .daily
+        dailyTarget = try container.decodeIfPresent(Int.self, forKey: .dailyTarget) ?? 1
+        completionCount = try container.decodeIfPresent(Int.self, forKey: .completionCount) ?? 0
     }
 
     var themeColor: Color {
@@ -160,9 +161,13 @@ struct Habit: Identifiable, Codable, Equatable {
         return completionHistory.contains { calendar.isDate($0, inSameDayAs: date) }
     }
 
-    /// Whether the habit is scheduled to be done on the given date
     func isScheduled(on date: Date) -> Bool {
         frequency.isScheduled(on: date)
+    }
+
+    /// True when today's completionCount has reached the dailyTarget
+    var isFullyCompletedToday: Bool {
+        completionCount >= dailyTarget
     }
 }
 
